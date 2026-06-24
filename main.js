@@ -4,7 +4,7 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
   async onload() {
     console.log('%c[Link Spectrum]%c Initializing Core System Engine...', 'color: #ff4757; font-weight: bold;', 'color: default;');
 
-    // Inject the required custom spectrum stylesheet layer into the DOM head
+    // Inject the custom spectrum stylesheet layer into the DOM head
     this.injectStyles();
 
     // 1. FOR LIVE PREVIEW / EDIT / SOURCE MODE: Polling sweep looking for active editor link elements
@@ -22,7 +22,6 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
 
     // 2. FOR READING VIEW: Register Markdown Post Processor to inject attributes onto static HTML anchors
     this.registerMarkdownPostProcessor((element) => {
-      // Select all internal, external, and standard HTML link components rendered in the reading container
       const readingModeLinks = element.querySelectorAll('.internal-link, .external-link, a');
       if (readingModeLinks.length > 0) {
         this.attributeReadingElements(readingModeLinks);
@@ -53,39 +52,24 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
 
   // Locates parent containers in active editing buffers, finds target nodes, and stamps tokens
   processLegacyLinkSpans() {
-    // Select all potential target link containers active across Editor/Source view states
     const parentLinks = document.querySelectorAll('.cm-s-obsidian .cm-hmd-internal-link, .cm-s-obsidian .cm-link, .cm-s-obsidian .cm-url');
     
     if (parentLinks.length === 0) {
-      console.debug('[Link Spectrum Scan] Heartbeat check: 0 active editor link selectors found in view.');
       return;
     }
-
-    console.log(`[Link Spectrum Scan] Found ${parentLinks.length} target parent link container wrappers in active viewport.`);
     
-    parentLinks.forEach((parent, index) => {
-      // Look for last child span element layer; fallback safely to parent token if layout is flat text string
+    parentLinks.forEach((parent) => {
       const lastSpan = parent.querySelector('span:last-child') || parent;
-      
-      if (!lastSpan) {
-        console.warn(`[Link Spectrum Warning] Item [${index}] missing a valid element block mapping layout inside parent:`, parent);
-        return;
-      }
+      if (!lastSpan) return;
 
       const text = lastSpan.textContent || '';
       const match = text.match(/[a-zA-Z]/);
 
       if (match) {
         const firstLetter = match[0].toLowerCase();
-        
-        console.log(`[Link Spectrum Match] Item [${index}] Text: "${text}" ➔ Letter resolved: "${firstLetter}"`);
-        
         if (lastSpan.getAttribute('data-alpha-character') !== firstLetter) {
           lastSpan.setAttribute('data-alpha-character', firstLetter);
-          console.log(`%c[Link Spectrum Mutation]%c Stamped attribute [data-alpha-character="${firstLetter}"] onto target element successfully.`, 'color: #2ed573; font-weight: bold;', 'color: default;');
         }
-      } else {
-        console.log(`[Link Spectrum Skip] Item [${index}] contains no alphabetical parameters. Raw Text string content read: "${text}"`);
       }
     });
   }
@@ -97,7 +81,7 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     styleEl.id = 'obsidian-link-spectrum-styles';
 
     let cssRules = `
-      /* Clear standard text decorations rules globally across system paths, ensuring zero underlines on hover */
+      /* State 1: Reset lines, clear text-decorations, and manage base layout values */
       .cm-s-obsidian .cm-hmd-internal-link span,
       .cm-s-obsidian .cm-link, 
       .cm-s-obsidian .cm-url,
@@ -109,6 +93,7 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
         transition: color 0.3s ease;
       }
       
+      /* Enforce absolute suppression of underlines on hover states across layouts */
       .cm-s-obsidian span.cm-hmd-internal-link:hover,
       .cm-hmd-internal-link:hover,
       .cm-s-obsidian .cm-link:hover,
@@ -121,41 +106,52 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
         text-decoration: none !important;
         text-decoration-line: none !important;
       }
-    `;
-
-    // Map characters 'a' through 'z' (0 to 25 steps) across 360 degrees of hue
-    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-    for (let i = 0; i < alphabet.length; i++) {
-      const char = alphabet[i];
-      const hue = Math.round((i / alphabet.length) * 360);
       
-      cssRules += `
-        .cm-s-obsidian .cm-hmd-internal-link span[data-alpha-character="${char}"],
-        .cm-s-obsidian .cm-link[data-alpha-character="${char}"],
-        .cm-s-obsidian .cm-url[data-alpha-character="${char}"],
-        [data-alpha-character="${char}"] {
-          color: hsl(${hue}, 85%, 65%) !important;
-        }
-      `;
-    }
-
-    // Pure CSS @keyframes color animation loops for hovered link states across all views
-    cssRules += `
+      /* State 2: Dynamic hover trigger overrides. Turns text transparent ONLY during active hover events */
       .cm-s-obsidian .cm-hmd-internal-link span:hover,
       .cm-s-obsidian .cm-link:hover,
       .cm-s-obsidian .cm-url:hover,
       .internal-link:hover, 
       .external-link:hover, 
       .markdown-preview-view a:hover {
-        animation: linkSpectrumRotate 4s linear infinite !important;
+        background-image: linear-gradient(to right, hsl(0, 85%, 65%), hsl(90, 85%, 65%), hsl(180, 85%, 65%), hsl(270, 85%, 65%), hsl(360, 85%, 65%)) !important;
+        background-size: 200% auto !important;
+        -webkit-background-clip: text !important;
+        background-clip: text !important;
+        color: transparent !important;
+        animation: linkSpectrumShift 3s linear infinite !important;
       }
+    `;
 
-      @keyframes linkSpectrumRotate {
-        0%   { color: hsl(0, 85%, 65%) !important; }
-        25%  { color: hsl(90, 85%, 65%) !important; }
-        50%  { color: hsl(180, 85%, 65%) !important; }
-        75%  { color: hsl(270, 85%, 65%) !important; }
-        100% { color: hsl(360, 85%, 65%) !important; }
+    // Map characters 'a' through 'z' (0 to 25 steps) across 360 degrees of hue for standard link view states
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    for (let i = 0; i < alphabet.length; i++) {
+      const char = alphabet[i];
+      const hue = Math.round((i / alphabet.length) * 360);
+      
+      // Selectors specifically target only non-hovered items, restoring their proper baseline coloring
+      cssRules += `
+        .cm-s-obsidian .cm-hmd-internal-link span[data-alpha-character="${char}"]:not(:hover),
+        .cm-s-obsidian .cm-link[data-alpha-character="${char}"]:not(:hover),
+        .cm-s-obsidian .cm-url[data-alpha-character="${char}"]:not(:hover),
+        [data-alpha-character="${char}"]:not(:hover) {
+          color: hsl(${hue}, 85%, 65%) !important;
+          background-image: none !important;
+          -webkit-background-clip: initial !important;
+          background-clip: initial !important;
+        }
+      `;
+    }
+
+    // Hardware-accelerated background-position shift pattern sequence
+    cssRules += `
+      @keyframes linkSpectrumShift {
+        0% {
+          background-position: 0% center;
+        }
+        100% {
+          background-position: 200% center;
+        }
       }
     `;
 
