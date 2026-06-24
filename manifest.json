@@ -1,0 +1,11 @@
+{
+    "id": "obsidian-link-spectrum",
+    "name": "Link Spectrum Colorizer",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "description": "Colors markdown links chronologically across the alphabetical spectrum and handles keyframe rotation on hover states.",
+    "author": "AI Collaborator",
+    "authorUrl": "https://obsidian.md",
+    "isDesktopOnly": false
+  }
+  
