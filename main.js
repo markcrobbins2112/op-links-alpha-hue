@@ -4,36 +4,37 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
   constructor(app, manifest) {
     super(app, manifest);
     this.activeAnimationIntervals = new Map();
+    this.observer = null;
   }
 
   async onload() {
-    console.log('%c[Link Spectrum]%c Initializing Core System Engine...', 'color: #ff4757; font-weight: bold;', 'color: default;');
+    console.log('%c[Link Spectrum]%c Initializing High-Performance Uniform Engine...', 'color: #ff4757; font-weight: bold;', 'color: default;');
 
-    // Inject the baseline text-decoration reset style sheet layers into the DOM head
+    // 1. Inject the baseline clears and color rules into the global DOM context
     this.injectStyles();
 
-    // 1. FOR ALL EDIT MODES (Live Preview, Source View): Standard interval polling loop
-    this.registerInterval(
-      window.setInterval(() => this.processLegacyLinkSpans(), 1000)
-    );
+    // 2. FOR ALL EDIT MODES (Live Preview & Source View): Register real-time layout interceptor
+    this.initializeObserver();
 
-    this.registerEvent(
-      this.app.workspace.on('layout-change', () => this.processLegacyLinkSpans())
-    );
-
-    // 2. FOR READING VIEW: Core Markdown Post Processor interface
+    // 3. FOR READING VIEW: Standard Markdown Post Processor interface
     this.registerMarkdownPostProcessor((element) => {
       const readingModeLinks = element.querySelectorAll('.internal-link, .external-link, a');
       if (readingModeLinks.length > 0) {
-        this.attributeAndRegisterHoverEvents(readingModeLinks);
+        this.processElementsArray(readingModeLinks);
       }
     });
+
+    // Run an initial structural sweep right at startup to color existing text
+    this.app.workspace.onLayoutReady(() => this.sweepActiveViewport());
+    this.registerEvent(this.app.workspace.on('layout-change', () => this.sweepActiveViewport()));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.sweepActiveViewport()));
   }
 
   onunload() {
     console.log('%c[Link Spectrum]%c Removing tracking handlers and restoring styles...', 'color: #ff4757; font-weight: bold;', 'color: default;');
     
-    // Clean up all active JavaScript animation frame loops to prevent memory leaks
+    if (this.observer) this.observer.disconnect();
+
     this.activeAnimationIntervals.forEach((intervalId) => clearInterval(intervalId));
     this.activeAnimationIntervals.clear();
 
@@ -41,67 +42,60 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     if (styleEl) styleEl.remove();
   }
 
-  // Unified logic to read text metrics, stamp structural tokens, and mount hover listeners
-  attributeAndRegisterHoverEvents(elements) {
-    elements.forEach((el) => {
-      const text = el.textContent || '';
-      const match = text.match(/[a-zA-Z]/);
-
-      if (match) {
-        const firstLetter = match[0].toLowerCase();
-        
-        // Apply baseline color mapping variable
-        if (el.getAttribute('data-alpha-character') !== firstLetter) {
-          el.setAttribute('data-alpha-character', firstLetter);
-          this.applyAlphabetColor(el, firstLetter);
-        }
-
-        // Mount listeners if the target element hasn't been initialized yet
-        if (!el.dataset.spectrumBound) {
-          el.dataset.spectrumBound = "true";
-          
-          el.addEventListener('mouseenter', () => this.startSpectrumRotation(el));
-          el.addEventListener('mouseleave', () => this.stopSpectrumRotation(el));
+  // Monitor DOM modifications instantly to process new links the exact millisecond they hit the viewport
+  initializeObserver() {
+    this.observer = new MutationObserver((mutations) => {
+      let shouldSweep = false;
+      for (let i = 0; i < mutations.length; i++) {
+        if (mutations[i].addedNodes.length > 0) {
+          shouldSweep = true;
+          break;
         }
       }
+      if (shouldSweep) {
+        const links = document.querySelectorAll('.cm-s-obsidian .cm-hmd-internal-link, .cm-s-obsidian .cm-hmd-barelink, .cm-s-obsidian .cm-link, .cm-s-obsidian .cm-url, .cm-editor .cm-link, .cm-editor .cm-hmd-internal-link');
+        if (links.length > 0) this.processElementsArray(links);
+      }
+    });
+
+    this.observer.observe(document.body, {
+      childList: true,
+      subtree: true
     });
   }
 
-  // Deep structural loop processing links inside CodeMirror 5 editors
-  processLegacyLinkSpans() {
-    // EXTENDED SELECTORS MAP: Adds .cm-hmd-barelink and nested span tracking loops to fully catch Live Preview
-    const parentLinks = document.querySelectorAll(
-      '.cm-s-obsidian .cm-hmd-internal-link, ' +
-      '.cm-s-obsidian .cm-hmd-barelink, ' +
-      '.cm-s-obsidian .cm-link, ' +
-      '.cm-s-obsidian .cm-url'
-    );
-    
-    if (parentLinks.length === 0) return;
-    
-    parentLinks.forEach((parent) => {
-      // Find text target or fallback cleanly to the element structure itself
+  sweepActiveViewport() {
+    const links = document.querySelectorAll('.cm-s-obsidian .cm-hmd-internal-link, .cm-s-obsidian .cm-hmd-barelink, .cm-s-obsidian .cm-link, .cm-s-obsidian .cm-url, .cm-editor .cm-link, .cm-editor .cm-hmd-internal-link, .internal-link, .external-link, .markdown-preview-view a');
+    if (links.length > 0) this.processElementsArray(links);
+  }
+
+  // Core array parsing tracker
+  processElementsArray(elements) {
+    elements.forEach((parent) => {
+      // Find the specific text node layer or fallback to the element wrapper itself
       const targetNode = parent.querySelector('span:last-child') || parent;
-      if (!targetNode) return;
+      if (!targetNode || this.activeAnimationIntervals.has(targetNode)) return;
 
       const text = targetNode.textContent || '';
       const match = text.match(/[a-zA-Z]/);
 
       if (match) {
         const firstLetter = match[0].toLowerCase();
-        
-        if (targetNode.getAttribute('data-alpha-character') !== firstLetter) {
-          targetNode.setAttribute('data-alpha-character', firstLetter);
-          this.applyAlphabetColor(targetNode, firstLetter);
+        const targetClass = `cm-spectrum-${firstLetter}`;
+
+        // STAMP CLASS ONLY: Mutating the class list string avoids caret reflow glitches entirely
+        if (!targetNode.classList.contains(targetClass)) {
+          targetNode.className = targetNode.className.replace(/\bcm-spectrum-[a-z]\b/g, '');
+          targetNode.classList.add(targetClass);
         }
 
-        // Apply fallback attribute mapping tracking upstream to parent containers to break theme color cascades
-        if (parent !== targetNode && parent.getAttribute('data-alpha-character') !== firstLetter) {
-          parent.setAttribute('data-alpha-character', firstLetter);
-          this.applyAlphabetColor(parent, firstLetter);
+        // Apply class tracking upstream to parent tokens to break complex theme color cascades
+        if (parent !== targetNode && !parent.classList.contains(targetClass)) {
+          parent.className = parent.className.replace(/\bcm-spectrum-[a-z]\b/g, '');
+          parent.classList.add(targetClass);
         }
 
-        // Mount our smooth JavaScript rotation listeners onto the actionable node
+        // Securely register the mouse hover tracking listeners
         if (!targetNode.dataset.spectrumBound) {
           targetNode.dataset.spectrumBound = "true";
           targetNode.addEventListener('mouseenter', () => this.startSpectrumRotation(targetNode));
@@ -111,25 +105,15 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     });
   }
 
-  // Maps individual letters seamlessly into HSL degree configurations
-  applyAlphabetColor(element, character) {
-    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
-    const idx = alphabet.indexOf(character);
-    if (idx !== -1) {
-      const hue = Math.round((idx / alphabet.length) * 360);
-      element.style.setProperty('color', `hsl(${hue}, 85%, 65%)`, 'important');
-    }
-  }
-
-  // Drives the live multi-hued text animation sequence safely using an absolute interval timer loop
+  // Drives the live multi-hued text animation sequence using direct inline style property locks
   startSpectrumRotation(element) {
     if (this.activeAnimationIntervals.has(element)) return;
 
     let currentHue = 0;
     const intervalId = window.setInterval(() => {
       element.style.setProperty('color', `hsl(${currentHue}, 85%, 65%)`, 'important');
-      currentHue = (currentHue + 4) % 360; // 4-degree step increments creates a smooth 4-second spin loop
-    }, 45); // ~24 frames per second rendering profile metrics
+      currentHue = (currentHue + 4) % 360; // Smooth 4-second spin loop
+    }, 45);
 
     this.activeAnimationIntervals.set(element, intervalId);
   }
@@ -140,10 +124,8 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
       clearInterval(this.activeAnimationIntervals.get(element));
       this.activeAnimationIntervals.delete(element);
       
-      const currentLetter = element.getAttribute('data-alpha-character');
-      if (currentLetter) {
-        this.applyAlphabetColor(element, currentLetter);
-      }
+      // Wipe the inline modification completely so native CSS engine style sheets resume control
+      element.style.removeProperty('color');
     }
   }
 
@@ -153,39 +135,46 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     const styleEl = document.createElement('style');
     styleEl.id = 'obsidian-link-spectrum-styles';
 
-    // Clears all text lines decoration and structural underlines globally across all view sheets
-    styleEl.innerHTML = `
+    let cssRules = `
+      /* Universal Reset: Clear all underlines and structural text-decorations globally across all views */
       .cm-s-obsidian .cm-hmd-internal-link,
       .cm-s-obsidian .cm-hmd-internal-link span,
       .cm-s-obsidian .cm-hmd-barelink,
       .cm-s-obsidian .cm-hmd-barelink span,
       .cm-s-obsidian .cm-link, 
       .cm-s-obsidian .cm-url,
+      .cm-editor .cm-link,
+      .cm-editor .cm-hmd-internal-link,
       .internal-link, 
       .external-link, 
       .markdown-preview-view a,
-      .cm-underline {
+      .cm-underline,
+      [class*="cm-spectrum-"] {
         text-decoration: none !important;
         text-decoration-line: none !important;
         border-bottom: none !important;
-      }
-      
-      .cm-s-obsidian .cm-hmd-internal-link:hover,
-      .cm-s-obsidian .cm-hmd-internal-link span:hover,
-      .cm-s-obsidian .cm-hmd-barelink:hover,
-      .cm-s-obsidian .cm-hmd-barelink span:hover,
-      .cm-s-obsidian .cm-link:hover,
-      .cm-s-obsidian .cm-url:hover,
-      .internal-link:hover, 
-      .external-link:hover, 
-      .markdown-preview-view a:hover,
-      .cm-underline:hover {
-        text-decoration: none !important;
-        text-decoration-line: none !important;
-        border-bottom: none !important;
+        transition: color 0.3s ease;
       }
     `;
 
+    // Map characters 'a' through 'z' (0 to 25 steps) across 360 degrees of hue
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    for (let i = 0; i < alphabet.length; i++) {
+      const char = alphabet[i];
+      const hue = Math.round((i / alphabet.length) * 360);
+      
+      // Hook rules explicitly into both legacy and modern class structures
+      cssRules += `
+        .cm-s-obsidian .cm-spectrum-${char},
+        .cm-editor .cm-spectrum-${char},
+        .markdown-preview-view .cm-spectrum-${char},
+        .cm-spectrum-${char} {
+          color: hsl(${hue}, 85%, 65%) !important;
+        }
+      `;
+    }
+
+    styleEl.innerHTML = cssRules;
     document.head.appendChild(styleEl);
   }
 };
