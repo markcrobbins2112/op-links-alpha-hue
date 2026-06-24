@@ -7,18 +7,27 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     // Inject the required custom spectrum stylesheet layer into the DOM head
     this.injectStyles();
 
-    // 1. FOR LIVE PREVIEW / EDIT / SOURCE MODE: Polling sweep looking for legacy parent link wrappers
+    // 1. FOR LIVE PREVIEW / EDIT / SOURCE MODE: Polling sweep looking for active editor link elements
     this.registerInterval(
       window.setInterval(() => this.processLegacyLinkSpans(), 1000)
     );
 
-    // Re-run the processor immediately when the workspace view state changes
+    // Re-run the editor processor immediately when views toggle or files layout changes
     this.registerEvent(
       this.app.workspace.on('layout-change', () => {
         console.log('[Link Spectrum] Layout change event caught, forcing instant viewport sweep.');
         this.processLegacyLinkSpans();
       })
     );
+
+    // 2. FOR READING VIEW: Register Markdown Post Processor to inject attributes onto static HTML anchors
+    this.registerMarkdownPostProcessor((element) => {
+      // Select all internal, external, and standard HTML link components rendered in the reading container
+      const readingModeLinks = element.querySelectorAll('.internal-link, .external-link, a');
+      if (readingModeLinks.length > 0) {
+        this.attributeReadingElements(readingModeLinks);
+      }
+    });
   }
 
   onunload() {
@@ -27,20 +36,35 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
     if (styleEl) styleEl.remove();
   }
 
-  // Locates parent containers, finds the target span, reads it, and stamps the attribute token
+  // Helper method to scan and attribute static element arrays (Used exclusively for Reading View)
+  attributeReadingElements(elements) {
+    elements.forEach((el) => {
+      const text = el.textContent || '';
+      const match = text.match(/[a-zA-Z]/);
+
+      if (match) {
+        const firstLetter = match[0].toLowerCase();
+        if (el.getAttribute('data-alpha-character') !== firstLetter) {
+          el.setAttribute('data-alpha-character', firstLetter);
+        }
+      }
+    });
+  }
+
+  // Locates parent containers in active editing buffers, finds target nodes, and stamps tokens
   processLegacyLinkSpans() {
-    // Select all potential target link parent containers active in the DOM tree across all view modes
+    // Select all potential target link containers active across Editor/Source view states
     const parentLinks = document.querySelectorAll('.cm-s-obsidian .cm-hmd-internal-link, .cm-s-obsidian .cm-link, .cm-s-obsidian .cm-url');
     
     if (parentLinks.length === 0) {
-      console.debug('[Link Spectrum Scan] Heartbeat check: 0 active parent link selectors found in view.');
+      console.debug('[Link Spectrum Scan] Heartbeat check: 0 active editor link selectors found in view.');
       return;
     }
 
     console.log(`[Link Spectrum Scan] Found ${parentLinks.length} target parent link container wrappers in active viewport.`);
     
     parentLinks.forEach((parent, index) => {
-      // FIX FOR SOURCE VIEW: Look for the last child span. If none exists (flat link layout), fallback to the parent element itself.
+      // Look for last child span element layer; fallback safely to parent token if layout is flat text string
       const lastSpan = parent.querySelector('span:last-child') || parent;
       
       if (!lastSpan) {
@@ -52,12 +76,10 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
       const match = text.match(/[a-zA-Z]/);
 
       if (match) {
-        // Extract index [0] from the match results array before casting lowercase conversion
         const firstLetter = match[0].toLowerCase();
         
         console.log(`[Link Spectrum Match] Item [${index}] Text: "${text}" ➔ Letter resolved: "${firstLetter}"`);
         
-        // Update the mutation state attribute ONLY if it changed to keep rendering fast
         if (lastSpan.getAttribute('data-alpha-character') !== firstLetter) {
           lastSpan.setAttribute('data-alpha-character', firstLetter);
           console.log(`%c[Link Spectrum Mutation]%c Stamped attribute [data-alpha-character="${firstLetter}"] onto target element successfully.`, 'color: #2ed573; font-weight: bold;', 'color: default;');
@@ -94,7 +116,8 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
       .cm-link .cm-underline, 
       .cm-link .cm-underline:hover, 
       .cm-url .cm-underline,
-      .cm-url .cm-underline:hover {
+      .cm-url .cm-underline:hover,
+      .markdown-preview-view a:hover {
         text-decoration: none !important;
         text-decoration-line: none !important;
       }
@@ -106,7 +129,6 @@ module.exports = class LinkSpectrumPlugin extends Plugin {
       const char = alphabet[i];
       const hue = Math.round((i / alphabet.length) * 360);
       
-      // Extended CSS rules to directly hook into flat Source View link classes carrying your attribute token
       cssRules += `
         .cm-s-obsidian .cm-hmd-internal-link span[data-alpha-character="${char}"],
         .cm-s-obsidian .cm-link[data-alpha-character="${char}"],
